@@ -12,10 +12,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Random;
 
 
 public class BtActivity extends Activity {
@@ -23,6 +27,9 @@ public class BtActivity extends Activity {
     // Debugging
     private static final String TAG = "BluetoothActivity";
     private static final boolean D = true;
+
+    Button goButton;
+    EditText mEdit;
 
     // Message types sent from the BluetoothChatService Handler
     public static final int MESSAGE_STATE_CHANGE = 1;
@@ -107,6 +114,15 @@ public class BtActivity extends Activity {
         ((RoutingApp)getApplicationContext()).updateRouteTable
                 ("ADV;" + getOwnMAC() + ";999");
         doDiscovery();
+
+        goButton = (Button) findViewById(R.id.buttonGo);
+        mEdit = (EditText)findViewById(R.id.editText);
+        goButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendRequest();
+            }
+        });
     }
 
     @Override
@@ -184,9 +200,33 @@ public class BtActivity extends Activity {
 
                 // Device is connected, advertise
                 sendMessage("ADV;" + getOwnMAC() + ";" +
-                        ((RoutingApp)getApplicationContext()).getMinHop());
+                        "1");
+                        //((RoutingApp)getApplicationContext()).getMinHop() + 1);
             }
         }
+    }
+
+    private void sendRequest() {
+        Log.i(TAG, "sendRequest()");
+
+        // Get the address of the next hop
+        BluetoothDevice nextHop = mBluetoothAdapter.getRemoteDevice(
+                ((RoutingApp)getApplicationContext()).getNextHop());
+        Log.i(TAG, "Will send request to: " + nextHop.getAddress());
+        mService.connect(nextHop);
+
+        // Wait until connection is done
+        for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
+            if (mService.getState() == BluetoothService.STATE_LISTEN){
+                Log.e(TAG, "Failed to connect, listening");
+                return;
+            }
+        }
+
+        // Device is connected, send request
+        Random rn = new Random();
+        // Message -> RQT ; Message ID ; Own MAC ; Data
+        sendMessage("RQT;" + rn.nextInt() + ";" + getOwnMAC() + ";" + mEdit.getText().toString());
     }
 
     private void sendMessage(String message) {
@@ -254,7 +294,7 @@ public class BtActivity extends Activity {
             // When discovery is finished, change the Activity title
         } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
             if(!discoveryFinished) {
-                TextView peerText = (TextView) findViewById(R.id.textView);
+                TextView peerText = (TextView) findViewById(R.id.textViewPeers);
                 Log.i(TAG, "Discovery finished.");
                 // Stop the discovery
                 mBluetoothAdapter.cancelDiscovery();
@@ -299,7 +339,9 @@ public class BtActivity extends Activity {
                 // construct a string from the valid bytes in the buffer
                 String readMessage = new String(readBuf, 0, msg.arg1);
                 // handle received message
+                TextView recvText = (TextView) findViewById(R.id.textViewReceived);
                 Log.i(TAG, "Received a new message: " + readMessage);
+                recvText.setText(recvText.getText() + "\n" + readMessage);
                 analyzeMessage(readMessage);
                 break;
             case MESSAGE_DEVICE_NAME:
