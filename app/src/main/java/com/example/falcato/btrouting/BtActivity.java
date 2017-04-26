@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -22,9 +23,6 @@ public class BtActivity extends Activity {
     // Debugging
     private static final String TAG = "BluetoothActivity";
     private static final boolean D = true;
-
-    // Global application variables
-    public RoutingApp gv;
 
     // Message types sent from the BluetoothChatService Handler
     public static final int MESSAGE_STATE_CHANGE = 1;
@@ -64,8 +62,6 @@ public class BtActivity extends Activity {
         // Set up the window layout
         setContentView(R.layout.activity_bt);
 
-         gv = ((RoutingApp)getApplicationContext());
-
         // Get local Bluetooth adapter
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -78,16 +74,7 @@ public class BtActivity extends Activity {
             finish();
             return;
         }
-        // Register for broadcasts when a device is discovered
-        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        this.registerReceiver(mReceiver, filter);
 
-        // Register for broadcasts when discovery has finished
-        filter = new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-        this.registerReceiver(mReceiver, filter);
-
-        // Make this device discoverable
-        ensureDiscoverable();
     }
 
     @Override
@@ -100,14 +87,26 @@ public class BtActivity extends Activity {
             Log.e(TAG, "mBluetoothAdapter not enabled");
             Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
-            // Setup the session
-            doDiscovery();
-            // Otherwise, setup the chat session
+
         } else {
             Log.e(TAG, "mBluetoothAdapter enabled");
-            gv.updateRouteTable("ADV;" + mBluetoothAdapter.getAddress() + ";999");
-            doDiscovery();
         }
+
+        // Register for broadcasts when a device is discovered
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+        this.registerReceiver(mReceiver, filter);
+
+        // Register for broadcasts when discovery has finished
+        filter = new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        this.registerReceiver(mReceiver, filter);
+
+        // Make this device discoverable
+        ensureDiscoverable();
+
+        // update route table and start discovery
+        ((RoutingApp)getApplicationContext()).updateRouteTable
+                ("ADV;" + getOwnMAC() + ";999");
+        doDiscovery();
     }
 
     @Override
@@ -117,6 +116,14 @@ public class BtActivity extends Activity {
         if (mService != null) mService.stop();
         if(D) Log.e(TAG, "--- ON DESTROY ---");
         unregisterReceiver(mReceiver);
+    }
+
+    private String getOwnMAC () {
+        if (Build.VERSION.SDK_INT > 22)
+            return android.provider.Settings.Secure.getString(this.getContentResolver(),
+                "bluetooth_address");
+        else
+            return mBluetoothAdapter.getAddress();
     }
 
     private void ensureDiscoverable() {
@@ -176,7 +183,8 @@ public class BtActivity extends Activity {
                 }
 
                 // Device is connected, advertise
-                sendMessage("ADV;" + mBluetoothAdapter.getAddress() + ";" + gv.getMinHop());
+                sendMessage("ADV;" + getOwnMAC() + ";" +
+                        ((RoutingApp)getApplicationContext()).getMinHop());
             }
         }
     }
@@ -204,14 +212,17 @@ public class BtActivity extends Activity {
         if (message.contains("ADV")){
             Log.i(TAG, "Advertising message");
             // Check if new shortest path was found
-            if (Integer.parseInt(message.split(";")[2]) < gv.getMinHop()){
+            if (Integer.parseInt(message.split(";")[2]) <
+                    ((RoutingApp)getApplicationContext()).getMinHop()){
+                Log.i(TAG, "New best path will advertise");
                 // If so, update table, initiate discovery and advertise new path
-                gv.updateRouteTable(message);
+                ((RoutingApp)getApplicationContext()).updateRouteTable(message);
                 discoveryFinished = false;
                 doDiscovery();
             }else{
+                Log.i(TAG, "New path is not the best will not advertise");
                 // Otherwise update table and continue listening
-                gv.updateRouteTable(message);
+                ((RoutingApp)getApplicationContext()).updateRouteTable(message);
             }
 
         // Request message

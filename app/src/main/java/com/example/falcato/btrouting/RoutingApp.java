@@ -6,6 +6,7 @@ import android.util.Log;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 public class RoutingApp extends Application {
 
@@ -20,6 +21,7 @@ public class RoutingApp extends Application {
     }
 
     public void updateRouteTable (String msg) {
+        Log.i(TAG, "updateRouteTable()");
         String dest = msg.split(";")[1];
         int hops = Integer.parseInt(msg.split(";")[2]);
 
@@ -38,7 +40,15 @@ public class RoutingApp extends Application {
     }
 
     public int getMinHop() {
-        int minHop = Collections.min(routeTable.values());
+        Log.i(TAG, "getMinHop()");
+        int minHop;
+        try {
+            minHop = Collections.min(routeTable.values());
+        }catch (NoSuchElementException e){
+            Log.e(TAG, e.toString());
+            minHop = -1;
+        }
+
         Log.i(TAG, "Minimal nr of hops is: " + minHop);
         return minHop;
     }
