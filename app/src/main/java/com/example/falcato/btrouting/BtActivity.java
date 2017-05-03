@@ -43,8 +43,6 @@ public class BtActivity extends Activity {
     public static final String TOAST = "toast";
 
     // Intent request codes
-    private static final int REQUEST_CONNECT_DEVICE_SECURE = 1;
-    private static final int REQUEST_CONNECT_DEVICE_INSECURE = 2;
     private static final int REQUEST_ENABLE_BT = 3;
 
     // Name of the connected device
@@ -59,7 +57,6 @@ public class BtActivity extends Activity {
     private BluetoothService mService = null;
     // Check if peer discovery is finished
     private boolean discoveryFinished = false;
-
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -112,15 +109,16 @@ public class BtActivity extends Activity {
 
         // update route table and start discovery
         ((RoutingApp)getApplicationContext()).updateRouteTable
-                ("ADV;" + getOwnMAC() + ";999");
+                ("ADV;" + getOwnMAC() + ";16");
         doDiscovery();
+        setupBluetoothService();
 
         goButton = (Button) findViewById(R.id.buttonGo);
         mEdit = (EditText)findViewById(R.id.editText);
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                sendRequest();
+                sendRequest(true, -1, mEdit.getText().toString());
             }
         });
     }
@@ -165,6 +163,8 @@ public class BtActivity extends Activity {
             bluetoothAdapter.enable();
 
         mBluetoothAdapter.startDiscovery();
+        Toast.makeText(getApplicationContext(), "Starting discovery. Please wait...",
+                Toast.LENGTH_SHORT).show();
     }
 
     private void setupBluetoothService() {
@@ -174,19 +174,13 @@ public class BtActivity extends Activity {
 
         // Initialize the buffer for outgoing messages
         mOutStringBuffer = new StringBuffer("");
-
-        // Start advertising
-        advertisePeers();
-
-        // Restart the service listening for connections
-        mService.start();
     }
 
     private void advertisePeers() {
         Log.i(TAG, "advertisePeers()");
         for (BluetoothDevice peer : peers){
             // Check if peer is using app
-            if (peer.getName().contains(";")){
+            if (peer.getName().contains(";")) {
                 Log.i(TAG, "Will advertise to: " + peer.getName());
                 mService.connect(peer);
 
@@ -194,6 +188,7 @@ public class BtActivity extends Activity {
                 for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
                     if (mService.getState() == BluetoothService.STATE_LISTEN){
                         Log.e(TAG, "Failed to connect, listening");
+                        mService.start();
                         return;
                     }
                 }
@@ -201,17 +196,25 @@ public class BtActivity extends Activity {
                 // Device is connected, advertise
                 sendMessage("ADV;" + getOwnMAC() + ";" +
                         "1");
-                        //((RoutingApp)getApplicationContext()).getMinHop() + 1);
+                //((RoutingApp)getApplicationContext()).getMinHop() + 1);
             }
         }
     }
 
-    private void sendRequest() {
+    private void sendRequest(boolean owner, int msgID, String message) {
         Log.i(TAG, "sendRequest()");
 
         // Get the address of the next hop
         BluetoothDevice nextHop = mBluetoothAdapter.getRemoteDevice(
                 ((RoutingApp)getApplicationContext()).getNextHop());
+        // In case there is no next hop
+        if (nextHop.getAddress() == null){
+            Log.i(TAG, "There is no next hop");
+            Toast.makeText(getApplicationContext(), "Unable to reach the Internet.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         Log.i(TAG, "Will send request to: " + nextHop.getAddress());
         mService.connect(nextHop);
 
@@ -219,14 +222,52 @@ public class BtActivity extends Activity {
         for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
             if (mService.getState() == BluetoothService.STATE_LISTEN){
                 Log.e(TAG, "Failed to connect, listening");
+                mService.start();
                 return;
             }
         }
 
-        // Device is connected, send request
-        Random rn = new Random();
-        // Message -> RQT ; Message ID ; Own MAC ; Data
-        sendMessage("RQT;" + rn.nextInt() + ";" + getOwnMAC() + ";" + mEdit.getText().toString());
+        // If device is the one sending the request
+        if (owner) {
+            // Device is connected, send request
+            Random rn = new Random();
+            int newMsgID = rn.nextInt();
+            // Message -> RQT ; Message ID ; Own MAC ; Data
+            sendMessage("RQT;" + newMsgID + ";" + getOwnMAC() + ";" + message);
+            // Update the response table with own MAC to know when the response is received
+            ((RoutingApp)getApplicationContext()).updateRspTable(newMsgID, getOwnMAC());
+        // If device is forwarding the request
+        }else{
+            // Message -> RQT ; Message ID ; Own MAC ; Data
+            sendMessage("RQT;" + msgID + ";" + getOwnMAC() + ";" + message);
+        }
+    }
+
+    private void sendResponse(int msgID, String message) {
+        Log.i(TAG, "sendResponse()");
+        // Retrieve the requester's MAC
+        String nextHopMAC = ((RoutingApp)getApplicationContext()).getRspHop(msgID);
+        // If message ID exists in the response table
+        if (nextHopMAC != null){
+            // Get the address of the next hop
+            BluetoothDevice nextHopDevice = mBluetoothAdapter.getRemoteDevice(nextHopMAC);
+            Log.i(TAG, "Will send response to: " + nextHopDevice.getAddress());
+            mService.connect(nextHopDevice);
+
+            // Wait until connection is done
+            for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
+                if (mService.getState() == BluetoothService.STATE_LISTEN){
+                    Log.e(TAG, "Failed to connect, listening");
+                    mService.start();
+                    return;
+                }
+            }
+
+            // Send the response message
+            sendMessage("RSP;" + msgID + ";" + message);
+        }else{
+            Log.i(TAG, "MAC for requested Message ID not found");
+        }
     }
 
     private void sendMessage(String message) {
@@ -248,6 +289,9 @@ public class BtActivity extends Activity {
     }
 
     private void analyzeMessage(String message) {
+        // Close connection
+        mService.start();
+
         // Advertising message
         if (message.contains("ADV")){
             Log.i(TAG, "Advertising message");
@@ -268,10 +312,30 @@ public class BtActivity extends Activity {
         // Request message
         }else if (message.contains("RQT")){
             Log.i(TAG, "Request message");
+            // Update the response table
+            ((RoutingApp)getApplicationContext()).updateRspTable(
+                    Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
+            // Perform check if device is connected to the Internet and send response or request
+            // to next hop
+
+
+            // Send the response
+            sendResponse(Integer.parseInt(message.split(";")[1]), message.split(";")[3]);
 
         // Response message
         }else if (message.contains("RSP")){
             Log.i(TAG, "Response message");
+            // If device is the destination
+            if (((RoutingApp)getApplicationContext()).getRspHop(Integer.parseInt(
+                    message.split(";")[1])).equals(getOwnMAC())){
+                // Request was successfully sent and response was received
+                Log.i(TAG, "Received what I asked for.");
+                TextView peerText = (TextView) findViewById(R.id.textViewPeers);
+                peerText.setText("Finally!");
+            // Otherwise forward response to destination
+            }else{
+                sendResponse(Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
+            }
         }
     }
 
@@ -299,8 +363,11 @@ public class BtActivity extends Activity {
                 // Stop the discovery
                 mBluetoothAdapter.cancelDiscovery();
                 discoveryFinished = true;
-                peerText.setText(peerText.getText() + peers.toString());
-                setupBluetoothService();
+                Toast.makeText(getApplicationContext(), "Discovery finished",
+                        Toast.LENGTH_SHORT).show();
+                Log.i(TAG, "Peers found: " + peers.toString());
+                peerText.setText("Peers found: " + peers.toString());
+                advertisePeers();
             }
         }
         }
@@ -315,15 +382,16 @@ public class BtActivity extends Activity {
                 if(D) Log.i(TAG, "MESSAGE_STATE_CHANGE: " + msg.arg1);
                 switch (msg.arg1) {
                     case BluetoothService.STATE_CONNECTED:
-                        Log.i(TAG, "Status: connected");
+                        Log.e(TAG, "Status: connected");
                         break;
                     case BluetoothService.STATE_CONNECTING:
-                        Log.i(TAG, "Status: connecting");
+                        Log.e(TAG, "Status: connecting");
                         break;
                     case BluetoothService.STATE_LISTEN:
-                        Log.i(TAG, "Status: listening");
+                        Log.e(TAG, "Status: listen");
+                        break;
                     case BluetoothService.STATE_NONE:
-                        Log.i(TAG, "Status: none");
+                        Log.e(TAG, "Status: none");
                         break;
                 }
                 break;

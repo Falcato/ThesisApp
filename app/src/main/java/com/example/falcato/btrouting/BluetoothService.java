@@ -191,6 +191,7 @@ public class BluetoothService {
      * Indicate that the connection attempt failed and notify the UI Activity.
      */
     private void connectionFailed() {
+        Log.i(TAG, "connectionFailed()");
         // Send a failure message back to the Activity
         Message msg = mHandler.obtainMessage(BtActivity.MESSAGE_TOAST);
         Bundle bundle = new Bundle();
@@ -206,6 +207,7 @@ public class BluetoothService {
      * Indicate that the connection was lost and notify the UI Activity.
      */
     private void connectionLost() {
+        Log.i(TAG, "connectionLost()");
         // Send a failure message back to the Activity
         Message msg = mHandler.obtainMessage(BtActivity.MESSAGE_TOAST);
         Bundle bundle = new Bundle();
@@ -402,8 +404,6 @@ public class BluetoothService {
                 } catch (IOException e) {
                     Log.e(TAG, "disconnected", e);
                     connectionLost();
-                    // Start the service over to restart listening mode
-                    BluetoothService.this.start();
                     break;
                 }
             }

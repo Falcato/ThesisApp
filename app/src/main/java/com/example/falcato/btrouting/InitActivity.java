@@ -14,7 +14,7 @@ public class InitActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_init);
-         goButton = (Button) findViewById(R.id.button);
+        goButton = (Button) findViewById(R.id.button);
 
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
