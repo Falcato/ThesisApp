@@ -41,6 +41,7 @@ public class BluetoothService {
     public static final int STATE_CONNECTING = 2; // now initiating an outgoing connection
     public static final int STATE_CONNECTED = 3;  // now connected to a remote device
 
+
     /**
      * Constructor. Prepares a new BluetoothChat session.
      * @param context  The UI Activity Context
@@ -185,6 +186,18 @@ public class BluetoothService {
         }
         // Perform the write unsynchronized
         r.write(out);
+    }
+
+    public void writeFile(byte[] out) {
+        // Create temporary object
+        ConnectedThread r;
+        // Synchronize a copy of the ConnectedThread
+        synchronized (this) {
+            if (mState != STATE_CONNECTED) return;
+            r = mConnectedThread;
+        }
+        // Perform the write unsynchronized
+        r.writeFile(out);
     }
 
     /**
@@ -389,7 +402,7 @@ public class BluetoothService {
 
         public void run() {
             Log.i(TAG, "BEGIN mConnectedThread");
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[20 * 1024];
             int bytes;
 
             // Keep listening to the InputStream while connected
@@ -414,14 +427,27 @@ public class BluetoothService {
          * @param buffer  The bytes to write
          */
         public void write(byte[] buffer) {
+            Log.i(TAG, "writeFile(byte[] buffer)");
             try {
                 mmOutStream.write(buffer);
 
                 // Share the sent message back to the UI Activity
                 mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, -1, -1, buffer)
-                        .sendToTarget();
+                        .sendToTarget(); 
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write", e);
+            }
+        }
+
+        public void writeFile(byte[] buffer) {
+            Log.i(TAG, "writeFile(byte[] buffer)");
+            try {
+                wait(1000);
+                mmOutStream.write(buffer);
+            } catch (IOException e) {
+                Log.e(TAG, "Exception during write file", e);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
 

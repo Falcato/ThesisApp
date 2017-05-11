@@ -3,6 +3,7 @@ package com.example.falcato.btrouting;
 import android.app.Application;
 import android.util.Log;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -11,15 +12,20 @@ import java.util.NoSuchElementException;
 public class RoutingApp extends Application {
 
     private static final String TAG = "RoutingApp";
+
     private boolean hasNet;
     // Table with routing hops
     public Map<String, Integer> routeTable = new HashMap<>();
     // Table with MACs corresponding to message ID's
     public Map<Integer, String> rspTable = new HashMap<>();
 
-    public boolean getHasNet () { return hasNet; }
+    public boolean getHasNet () {
+        Log.i(TAG, "getHasNet()");
+        return hasNet;
+    }
 
     public void setHasNet (boolean hasNet) {
+        Log.i(TAG, "setHasNet() " + hasNet);
         this.hasNet = hasNet;
     }
 

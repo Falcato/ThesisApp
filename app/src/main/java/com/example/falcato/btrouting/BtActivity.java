@@ -13,11 +13,21 @@ import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
 import android.view.View;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Random;
 
@@ -30,6 +40,7 @@ public class BtActivity extends Activity {
 
     Button goButton;
     EditText mEdit;
+    WebView mWebview;
 
     // Message types sent from the BluetoothChatService Handler
     public static final int MESSAGE_STATE_CHANGE = 1;
@@ -104,12 +115,28 @@ public class BtActivity extends Activity {
         filter = new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         this.registerReceiver(mReceiver, filter);
 
+        mWebview = (WebView) findViewById(R.id.webView);
+        mWebview.getSettings().setJavaScriptEnabled(true);
+        mWebview.getSettings().setAllowFileAccess(true);
+        mWebview.getSettings().setDomStorageEnabled(true);
+        mWebview.getSettings().setAllowContentAccess(true);
+        mWebview.getSettings().setAllowFileAccessFromFileURLs(true);
+        mWebview.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+
         // Make this device discoverable
         ensureDiscoverable();
 
         // update route table and start discovery
-        ((RoutingApp)getApplicationContext()).updateRouteTable
-                ("ADV;" + getOwnMAC() + ";16");
+        // If device has net
+        if(((RoutingApp)getApplicationContext()).getHasNet())
+            ((RoutingApp)getApplicationContext()).updateRouteTable
+                ("ADV;" + getOwnMAC() + ";0");
+        // Otherwise infinite number of hops
+        else
+            ((RoutingApp)getApplicationContext()).updateRouteTable
+                    ("ADV;" + getOwnMAC() + ";16");
+
+        // Remove comments
         doDiscovery();
         setupBluetoothService();
 
@@ -118,6 +145,10 @@ public class BtActivity extends Activity {
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                // Test
+                //getPage(mEdit.getText().toString());
+
+                // Remove comments
                 sendRequest(true, -1, mEdit.getText().toString());
             }
         });
@@ -158,10 +189,6 @@ public class BtActivity extends Activity {
             mBluetoothAdapter.cancelDiscovery();
         }
 
-        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (!bluetoothAdapter.isEnabled())
-            bluetoothAdapter.enable();
-
         mBluetoothAdapter.startDiscovery();
         Toast.makeText(getApplicationContext(), "Starting discovery. Please wait...",
                 Toast.LENGTH_SHORT).show();
@@ -185,18 +212,25 @@ public class BtActivity extends Activity {
                 mService.connect(peer);
 
                 // Wait until connection is done
-                for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
+                while (mService.getState() != BluetoothService.STATE_CONNECTED){
                     if (mService.getState() == BluetoothService.STATE_LISTEN){
                         Log.e(TAG, "Failed to connect, listening");
                         mService.start();
-                        return;
+                        break;
                     }
                 }
 
                 // Device is connected, advertise
-                sendMessage("ADV;" + getOwnMAC() + ";" +
-                        "1");
-                //((RoutingApp)getApplicationContext()).getMinHop() + 1);
+                int nrHops = ((RoutingApp)getApplicationContext()).getMinHop() + 1;
+                sendMessage("ADV;" + getOwnMAC() + ";" + nrHops);
+
+                // Wait until connection is finished
+                long initTime = System.currentTimeMillis();
+                while (mService.getState() != BluetoothService.STATE_LISTEN){
+                    if (System.currentTimeMillis() - initTime > 5000){
+                        break;
+                    }
+                }
             }
         }
     }
@@ -243,7 +277,7 @@ public class BtActivity extends Activity {
         }
     }
 
-    private void sendResponse(int msgID, String message) {
+    private void sendResponse(int msgID) {
         Log.i(TAG, "sendResponse()");
         // Retrieve the requester's MAC
         String nextHopMAC = ((RoutingApp)getApplicationContext()).getRspHop(msgID);
@@ -264,7 +298,7 @@ public class BtActivity extends Activity {
             }
 
             // Send the response message
-            sendMessage("RSP;" + msgID + ";" + message);
+            sendMessage("RSP;" + msgID);
         }else{
             Log.i(TAG, "MAC for requested Message ID not found");
         }
@@ -288,13 +322,25 @@ public class BtActivity extends Activity {
         }
     }
 
+    private void sendFile() {
+        Log.i(TAG, "sendFile()");
+
+        File f = new File(getFilesDir() + "file.mht");
+        byte[] buffer = new byte[8192];
+
+        try {
+            buffer = org.apache.commons.io.FileUtils.readFileToByteArray(f);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        mService.writeFile(buffer);
+    }
+
     private void analyzeMessage(String message) {
-        // Close connection
-        mService.start();
 
         // Advertising message
         if (message.contains("ADV")){
-            Log.i(TAG, "Advertising message");
             // Check if new shortest path was found
             if (Integer.parseInt(message.split(";")[2]) <
                     ((RoutingApp)getApplicationContext()).getMinHop()){
@@ -311,32 +357,104 @@ public class BtActivity extends Activity {
 
         // Request message
         }else if (message.contains("RQT")){
-            Log.i(TAG, "Request message");
             // Update the response table
             ((RoutingApp)getApplicationContext()).updateRspTable(
                     Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
-            // Perform check if device is connected to the Internet and send response or request
-            // to next hop
+
+            // If device is not connected to the Internet
+            if (!((RoutingApp)getApplicationContext()).getHasNet()){
+                // Forward the request
+                sendRequest(false, Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
 
 
-            // Send the response
-            sendResponse(Integer.parseInt(message.split(";")[1]), message.split(";")[3]);
+            // If it is connected, fetch the web page and send the response
+            }else{
+                getPage(message.split(";")[3]);
+                sendResponse(Integer.parseInt(message.split(";")[1]));
+                // Send the file
+                sendFile();
+            }
 
         // Response message
         }else if (message.contains("RSP")){
-            Log.i(TAG, "Response message");
+
             // If device is the destination
             if (((RoutingApp)getApplicationContext()).getRspHop(Integer.parseInt(
                     message.split(";")[1])).equals(getOwnMAC())){
                 // Request was successfully sent and response was received
                 Log.i(TAG, "Received what I asked for.");
-                TextView peerText = (TextView) findViewById(R.id.textViewPeers);
-                peerText.setText("Finally!");
+                // Display the page
+                loadPage();
             // Otherwise forward response to destination
             }else{
-                sendResponse(Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
+                // Forward the response
+                sendResponse(Integer.parseInt(message.split(";")[1]));
+                // Send the file
+                sendFile();
             }
         }
+    }
+
+    private void getPage(String url){
+        Log.i(TAG, "getPage(String url)");
+        mWebview.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url,
+                                      android.graphics.Bitmap favicon) {
+            }
+            public void onPageFinished(WebView view, String url){
+                view.saveWebArchive(getFilesDir() + "file.mht");
+                Log.i(TAG, "saved web archive");
+            }
+            public void onLoadResource(WebView view, String url) {
+            }
+        });
+
+        mWebview.loadUrl("http://" + url);
+    }
+
+    private void loadPage(){
+        Log.i(TAG, "loading page...");
+        mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
+        mWebview.setVisibility(View.VISIBLE);
+        mWebview.setWebViewClient(new WebViewClient());
+        mWebview.setWebChromeClient(new WebChromeClient());
+
+        if (Build.VERSION.SDK_INT < 22){
+            loadArchive();
+        }else{
+            mWebview.loadUrl("file:///" + getFilesDir() + "file.mht");
+        }
+    }
+
+    private void loadArchive(){
+        String rawData = null;
+        try {
+            rawData = getStringFromFile(getFilesDir() + "file.mht");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        mWebview.loadDataWithBaseURL(null, rawData, "application/x-webarchive-xml", "UTF-8", null);
+    }
+
+    public String getStringFromFile (String filePath) throws Exception {
+        File fl = new File(filePath);
+        FileInputStream fin = new FileInputStream(fl);
+        String ret = convertStreamToString(fin);
+        //Make sure you close all streams.
+        fin.close();
+        return ret;
+    }
+
+    public  String convertStreamToString(InputStream is) throws Exception {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+        StringBuilder sb = new StringBuilder();
+        String line = null;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line).append("\n");
+        }
+        reader.close();
+        return sb.toString();
     }
 
     // The BroadcastReceiver that listens for discovered devices and
@@ -377,51 +495,55 @@ public class BtActivity extends Activity {
     private final Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
-        switch (msg.what) {
-            case MESSAGE_STATE_CHANGE:
-                if(D) Log.i(TAG, "MESSAGE_STATE_CHANGE: " + msg.arg1);
-                switch (msg.arg1) {
-                    case BluetoothService.STATE_CONNECTED:
-                        Log.e(TAG, "Status: connected");
-                        break;
-                    case BluetoothService.STATE_CONNECTING:
-                        Log.e(TAG, "Status: connecting");
-                        break;
-                    case BluetoothService.STATE_LISTEN:
-                        Log.e(TAG, "Status: listen");
-                        break;
-                    case BluetoothService.STATE_NONE:
-                        Log.e(TAG, "Status: none");
-                        break;
-                }
-                break;
-            case MESSAGE_WRITE:
-                byte[] writeBuf = (byte[]) msg.obj;
-                // construct a string from the buffer
-                String writeMessage = new String(writeBuf);
-                // handle sent message
-                Log.i(TAG, "Sent a new message: " + writeMessage);
-                break;
-            case MESSAGE_READ:
-                byte[] readBuf = (byte[]) msg.obj;
-                // construct a string from the valid bytes in the buffer
-                String readMessage = new String(readBuf, 0, msg.arg1);
-                // handle received message
-                TextView recvText = (TextView) findViewById(R.id.textViewReceived);
-                Log.i(TAG, "Received a new message: " + readMessage);
-                recvText.setText(recvText.getText() + "\n" + readMessage);
-                analyzeMessage(readMessage);
-                break;
-            case MESSAGE_DEVICE_NAME:
-                // save the connected device's name
-                mConnectedDeviceName = msg.getData().getString(DEVICE_NAME);
-                Log.i(TAG, "Connected to " + mConnectedDeviceName);
-                break;
-            case MESSAGE_TOAST:
-                Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST),
-                        Toast.LENGTH_SHORT).show();
-                break;
-        }
+            switch (msg.what) {
+                case MESSAGE_STATE_CHANGE:
+                    if(D) Log.i(TAG, "MESSAGE_STATE_CHANGE: " + msg.arg1);
+                    switch (msg.arg1) {
+                        case BluetoothService.STATE_CONNECTED:
+                            Log.e(TAG, "Status: connected");
+                            break;
+                        case BluetoothService.STATE_CONNECTING:
+                            Log.e(TAG, "Status: connecting");
+                            break;
+                        case BluetoothService.STATE_LISTEN:
+                            Log.e(TAG, "Status: listen");
+                            break;
+                        case BluetoothService.STATE_NONE:
+                            Log.e(TAG, "Status: none");
+                            break;
+                    }
+                    break;
+                case MESSAGE_WRITE:
+                    byte[] writeBuf = (byte[]) msg.obj;
+                    // construct a string from the buffer
+                    String writeMessage = new String(writeBuf);
+                    // handle sent message
+                    Log.i(TAG, "Sent a new message: " + writeMessage);
+                    break;
+                case MESSAGE_READ:
+                    // Restart the Bluetooth Service
+                    mService.start();
+
+                    byte[] readBuf = (byte[]) msg.obj;
+                    // construct a string from the valid bytes in the buffer
+                    String readMessage = new String(readBuf, 0, msg.arg1);
+                    // handle received message
+                    TextView recvText = (TextView) findViewById(R.id.textViewReceived);
+                    Log.i(TAG, "Received a new message: " + readMessage);
+                    recvText.setText(recvText.getText() + "\n" + readMessage);
+                    analyzeMessage(readMessage);
+                    break;
+                case MESSAGE_DEVICE_NAME:
+                    // save the connected device's name
+                    mConnectedDeviceName = msg.getData().getString(DEVICE_NAME);
+                    Log.i(TAG, "Connected to " + mConnectedDeviceName);
+                    break;
+                case MESSAGE_TOAST:
+                    //Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST),
+                    //       Toast.LENGTH_SHORT).show();
+                    break;
+            }
         }
     };
+
 }
