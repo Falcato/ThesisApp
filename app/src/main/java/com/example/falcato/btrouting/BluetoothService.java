@@ -189,6 +189,7 @@ public class BluetoothService {
     }
 
     public void writeFile(byte[] out) {
+        Log.i(TAG, "writeFile(byte[] out)");
         // Create temporary object
         ConnectedThread r;
         // Synchronize a copy of the ConnectedThread
@@ -406,14 +407,23 @@ public class BluetoothService {
             int bytes;
 
             // Keep listening to the InputStream while connected
+            //while (no notification received)
             while (true) {
                 try {
                     // Read from the InputStream
                     bytes = mmInStream.read(buffer);
 
-                    // Send the obtained bytes to the UI Activity
-                    mHandler.obtainMessage(BtActivity.MESSAGE_READ, bytes, -1, buffer)
-                            .sendToTarget();
+                    if (bytes < 200) {
+                        // Send the obtained bytes to the UI Activity
+                        Log.e(TAG, "nr of bytes: " + bytes);
+                        mHandler.obtainMessage(BtActivity.MESSAGE_READ, bytes, -1, buffer)
+                                .sendToTarget();
+                    }else {
+                        Log.e(TAG, "nr of bytes file: " + bytes);
+                        mHandler.obtainMessage(BtActivity.FILE_READ, bytes, -1, buffer)
+                                .sendToTarget();
+                    }
+
                 } catch (IOException e) {
                     Log.e(TAG, "disconnected", e);
                     connectionLost();
@@ -427,13 +437,13 @@ public class BluetoothService {
          * @param buffer  The bytes to write
          */
         public void write(byte[] buffer) {
-            Log.i(TAG, "writeFile(byte[] buffer)");
+            Log.i(TAG, "write(byte[] buffer)");
             try {
                 mmOutStream.write(buffer);
-
+                mmOutStream.flush();
                 // Share the sent message back to the UI Activity
                 mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, -1, -1, buffer)
-                        .sendToTarget(); 
+                        .sendToTarget();
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write", e);
             }
@@ -442,12 +452,13 @@ public class BluetoothService {
         public void writeFile(byte[] buffer) {
             Log.i(TAG, "writeFile(byte[] buffer)");
             try {
-                wait(1000);
                 mmOutStream.write(buffer);
+                mmOutStream.flush();
+                // Share the sent message back to the UI Activity
+                mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, -1, -1, "Sent a file".getBytes())
+                        .sendToTarget();
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write file", e);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
             }
         }
 

@@ -22,9 +22,12 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -48,6 +51,7 @@ public class BtActivity extends Activity {
     public static final int MESSAGE_WRITE = 3;
     public static final int MESSAGE_DEVICE_NAME = 4;
     public static final int MESSAGE_TOAST = 5;
+    public static final int FILE_READ = 6;
 
     // Key names received from the BluetoothService Handler
     public static final String DEVICE_NAME = "device_name";
@@ -68,6 +72,8 @@ public class BtActivity extends Activity {
     private BluetoothService mService = null;
     // Check if peer discovery is finished
     private boolean discoveryFinished = false;
+
+    private int msgID = 0;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -322,19 +328,26 @@ public class BtActivity extends Activity {
         }
     }
 
-    private void sendFile() {
+    private void sendFile(int messageID) {
         Log.i(TAG, "sendFile()");
 
-        File f = new File(getFilesDir() + "file.mht");
-        byte[] buffer = new byte[8192];
+        //byte[] buffer = org.apache.commons.io.FileUtils.readFileToByteArray(f);
+        File file = new File(getFilesDir() + "file" + messageID + ".mht");
+        int size = (int) file.length();
+        byte[] bytes = new byte[size];
 
         try {
-            buffer = org.apache.commons.io.FileUtils.readFileToByteArray(f);
+            BufferedInputStream buf = new BufferedInputStream(new FileInputStream(file));
+            buf.read(bytes, 0, bytes.length);
+            buf.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        mService.writeFile(buffer);
+        mService.writeFile(bytes);
+
+        Log.i(TAG, "sent file with " + bytes.length + " bytes in: " + getFilesDir() + "file" +
+                messageID + ".mht");
     }
 
     private void analyzeMessage(String message) {
@@ -365,14 +378,9 @@ public class BtActivity extends Activity {
             if (!((RoutingApp)getApplicationContext()).getHasNet()){
                 // Forward the request
                 sendRequest(false, Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
-
-
             // If it is connected, fetch the web page and send the response
             }else{
-                getPage(message.split(";")[3]);
-                sendResponse(Integer.parseInt(message.split(";")[1]));
-                // Send the file
-                sendFile();
+                getPage(message.split(";")[3], Integer.parseInt(message.split(";")[1]));
             }
 
         // Response message
@@ -382,29 +390,34 @@ public class BtActivity extends Activity {
             if (((RoutingApp)getApplicationContext()).getRspHop(Integer.parseInt(
                     message.split(";")[1])).equals(getOwnMAC())){
                 // Request was successfully sent and response was received
-                Log.i(TAG, "Received what I asked for.");
-                // Display the page
-                loadPage();
+                Log.i(TAG, "Received my response.");
+
+                // Send notification to BTService to prepare to receive file
+                msgID = Integer.parseInt(message.split(";")[1]);
+
             // Otherwise forward response to destination
             }else{
                 // Forward the response
                 sendResponse(Integer.parseInt(message.split(";")[1]));
                 // Send the file
-                sendFile();
+                //sendFile(Integer.parseInt(message.split(";")[1]));
             }
         }
     }
 
-    private void getPage(String url){
-        Log.i(TAG, "getPage(String url)");
+    private void getPage(String url, final int messageID){
+        Log.i(TAG, "getPage(String url, final int messageID)");
         mWebview.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url,
                                       android.graphics.Bitmap favicon) {
             }
             public void onPageFinished(WebView view, String url){
-                view.saveWebArchive(getFilesDir() + "file.mht");
-                Log.i(TAG, "saved web archive");
+                view.saveWebArchive(getFilesDir() + "file" + messageID + ".mht");
+                Log.i(TAG, "saved web archive in: " + getFilesDir() + "file" + messageID + ".mht");
+                sendResponse(messageID);
+                // Send the file
+                //sendFile(messageID);
             }
             public void onLoadResource(WebView view, String url) {
             }
@@ -413,7 +426,9 @@ public class BtActivity extends Activity {
         mWebview.loadUrl("http://" + url);
     }
 
-    private void loadPage(){
+    /* --- Logic to display the file --- */
+
+    private void loadPage(int messageID){
         Log.i(TAG, "loading page...");
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
@@ -421,16 +436,17 @@ public class BtActivity extends Activity {
         mWebview.setWebChromeClient(new WebChromeClient());
 
         if (Build.VERSION.SDK_INT < 22){
-            loadArchive();
+            loadArchive(messageID);
         }else{
-            mWebview.loadUrl("file:///" + getFilesDir() + "file.mht");
+            mWebview.loadUrl("file:///" + getFilesDir() + "file" + messageID + ".mht");
         }
+        Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file" + messageID + ".mht");
     }
 
-    private void loadArchive(){
+    private void loadArchive(int messageID){
         String rawData = null;
         try {
-            rawData = getStringFromFile(getFilesDir() + "file.mht");
+            rawData = getStringFromFile(getFilesDir() + "file" + messageID + ".mht");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -457,8 +473,8 @@ public class BtActivity extends Activity {
         return sb.toString();
     }
 
-    // The BroadcastReceiver that listens for discovered devices and
-    // changes the title when discovery is finished
+    /* --- End of logic --- */
+
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -519,11 +535,13 @@ public class BtActivity extends Activity {
                     String writeMessage = new String(writeBuf);
                     // handle sent message
                     Log.i(TAG, "Sent a new message: " + writeMessage);
+
+                    // If a response was sent follow with the corresponding file
+                    if (writeMessage.contains("RSP;")){
+                        sendFile(Integer.parseInt(writeMessage.split(";")[1]));
+                    }
                     break;
                 case MESSAGE_READ:
-                    // Restart the Bluetooth Service
-                    mService.start();
-
                     byte[] readBuf = (byte[]) msg.obj;
                     // construct a string from the valid bytes in the buffer
                     String readMessage = new String(readBuf, 0, msg.arg1);
@@ -531,6 +549,12 @@ public class BtActivity extends Activity {
                     TextView recvText = (TextView) findViewById(R.id.textViewReceived);
                     Log.i(TAG, "Received a new message: " + readMessage);
                     recvText.setText(recvText.getText() + "\n" + readMessage);
+
+                    // Restart the Bluetooth Service
+                    if (!readMessage.contains("RSP;")) {
+                        mService.start();
+                    }
+
                     analyzeMessage(readMessage);
                     break;
                 case MESSAGE_DEVICE_NAME:
@@ -539,11 +563,37 @@ public class BtActivity extends Activity {
                     Log.i(TAG, "Connected to " + mConnectedDeviceName);
                     break;
                 case MESSAGE_TOAST:
-                    //Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST),
-                    //       Toast.LENGTH_SHORT).show();
+                    break;
+
+                case FILE_READ:
+                    Log.i(TAG, "Received a new file");
+                    // Restart the Bluetooth Service
+                    mService.start();
+
+                    byte[] readFileBuf = (byte[]) msg.obj;
+                    try {
+
+                        File file = new File(getFilesDir() + "file" + msgID + ".mht");
+                        if (!file.exists()) {
+                            file.createNewFile();
+                        }
+
+                        FileOutputStream stream = new FileOutputStream(
+                                getFilesDir() + "file" + msgID + ".mht");
+                        stream.write(readFileBuf);
+                        stream.flush();
+                        stream.close();
+
+                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file" + msgID + ".mht");
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    // Display the page
+                    loadPage(msgID);
                     break;
             }
         }
     };
-
 }
