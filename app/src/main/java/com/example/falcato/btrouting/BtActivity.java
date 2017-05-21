@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -52,6 +53,7 @@ public class BtActivity extends Activity {
     public static final int MESSAGE_DEVICE_NAME = 4;
     public static final int MESSAGE_TOAST = 5;
     public static final int FILE_READ = 6;
+    public static final int FILE_WRITE = 7;
 
     // Key names received from the BluetoothService Handler
     public static final String DEVICE_NAME = "device_name";
@@ -302,7 +304,6 @@ public class BtActivity extends Activity {
                     return;
                 }
             }
-
             // Send the response message
             sendMessage("RSP;" + msgID);
         }else{
@@ -328,11 +329,10 @@ public class BtActivity extends Activity {
         }
     }
 
-    private void sendFile(int messageID) {
+    private void sendFile() {
         Log.i(TAG, "sendFile()");
 
-        //byte[] buffer = org.apache.commons.io.FileUtils.readFileToByteArray(f);
-        File file = new File(getFilesDir() + "file" + messageID + ".mht");
+        File file = new File(getFilesDir() + "file.mht");
         int size = (int) file.length();
         byte[] bytes = new byte[size];
 
@@ -346,8 +346,7 @@ public class BtActivity extends Activity {
 
         mService.writeFile(bytes);
 
-        Log.i(TAG, "sent file with " + bytes.length + " bytes in: " + getFilesDir() + "file" +
-                messageID + ".mht");
+        Log.i(TAG, "sent file with " + bytes.length + " bytes in: " + getFilesDir() + "file.mht");
     }
 
     private void analyzeMessage(String message) {
@@ -386,26 +385,24 @@ public class BtActivity extends Activity {
         // Response message
         }else if (message.contains("RSP")){
 
+            // Save message ID to know the file name
+            msgID = Integer.parseInt(message.split(";")[1]);
+
             // If device is the destination
             if (((RoutingApp)getApplicationContext()).getRspHop(Integer.parseInt(
                     message.split(";")[1])).equals(getOwnMAC())){
                 // Request was successfully sent and response was received
                 Log.i(TAG, "Received my response.");
 
-                // Send notification to BTService to prepare to receive file
-                msgID = Integer.parseInt(message.split(";")[1]);
-
             // Otherwise forward response to destination
             }else{
                 // Forward the response
                 sendResponse(Integer.parseInt(message.split(";")[1]));
-                // Send the file
-                //sendFile(Integer.parseInt(message.split(";")[1]));
             }
         }
     }
 
-    private void getPage(String url, final int messageID){
+    private void getPage(String url, final int msgID){
         Log.i(TAG, "getPage(String url, final int messageID)");
         mWebview.setWebViewClient(new WebViewClient() {
             @Override
@@ -413,22 +410,29 @@ public class BtActivity extends Activity {
                                       android.graphics.Bitmap favicon) {
             }
             public void onPageFinished(WebView view, String url){
-                view.saveWebArchive(getFilesDir() + "file" + messageID + ".mht");
-                Log.i(TAG, "saved web archive in: " + getFilesDir() + "file" + messageID + ".mht");
-                sendResponse(messageID);
-                // Send the file
-                //sendFile(messageID);
+                view.saveWebArchive(getFilesDir() + "file.mht");
+                Log.i(TAG, "saved web archive in: " + getFilesDir() + "file.mht");
+
+                File file = new File(getFilesDir() + "file.mht");
+
+                Log.i(TAG, "Downloading webpage...");
+                while (!file.exists()){
+
+                }
+                Log.i(TAG, "Downloaded webpage...");
+
+                sendResponse(msgID);
             }
             public void onLoadResource(WebView view, String url) {
             }
         });
 
-        mWebview.loadUrl("http://" + url);
+        mWebview.loadUrl("https://" + url);
     }
 
     /* --- Logic to display the file --- */
 
-    private void loadPage(int messageID){
+    private void loadPage(){
         Log.i(TAG, "loading page...");
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
@@ -436,17 +440,17 @@ public class BtActivity extends Activity {
         mWebview.setWebChromeClient(new WebChromeClient());
 
         if (Build.VERSION.SDK_INT < 22){
-            loadArchive(messageID);
+            loadArchive();
         }else{
-            mWebview.loadUrl("file:///" + getFilesDir() + "file" + messageID + ".mht");
+            mWebview.loadUrl("file:///" + getFilesDir() + "file.mht");
         }
-        Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file" + messageID + ".mht");
+        Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file.mht");
     }
 
-    private void loadArchive(int messageID){
+    private void loadArchive(){
         String rawData = null;
         try {
-            rawData = getStringFromFile(getFilesDir() + "file" + messageID + ".mht");
+            rawData = getStringFromFile(getFilesDir() + "file.mht");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -538,7 +542,7 @@ public class BtActivity extends Activity {
 
                     // If a response was sent follow with the corresponding file
                     if (writeMessage.contains("RSP;")){
-                        sendFile(Integer.parseInt(writeMessage.split(";")[1]));
+                        sendFile();
                     }
                     break;
                 case MESSAGE_READ:
@@ -553,8 +557,9 @@ public class BtActivity extends Activity {
                     // Restart the Bluetooth Service
                     if (!readMessage.contains("RSP;")) {
                         mService.start();
+                    }else {
+                        mService.fileReady = true;
                     }
-
                     analyzeMessage(readMessage);
                     break;
                 case MESSAGE_DEVICE_NAME:
@@ -567,8 +572,6 @@ public class BtActivity extends Activity {
 
                 case FILE_READ:
                     Log.i(TAG, "Received a new file");
-                    // Restart the Bluetooth Service
-                    mService.start();
 
                     byte[] readFileBuf = (byte[]) msg.obj;
                     try {
@@ -579,19 +582,48 @@ public class BtActivity extends Activity {
                         }
 
                         FileOutputStream stream = new FileOutputStream(
-                                getFilesDir() + "file" + msgID + ".mht");
+                                getFilesDir() + "file.mht", false);
                         stream.write(readFileBuf);
                         stream.flush();
                         stream.close();
 
-                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file" + msgID + ".mht");
+                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file.mht");
                     } catch (FileNotFoundException e) {
                         e.printStackTrace();
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                     // Display the page
-                    loadPage(msgID);
+                    loadPage();
+
+                    // Restart the Bluetooth Service
+                    mService.start();
+                    mService.fileReady = false;
+                    break;
+
+                case FILE_WRITE:
+                    byte[] writeFileBuf = (byte[]) msg.obj;
+                    try {
+
+                        File file = new File(getFilesDir() + "file.mht");
+                        if (!file.exists()) {
+                            file.createNewFile();
+                        }
+
+                        FileOutputStream stream = new FileOutputStream(
+                                getFilesDir() + "file.mht", false);
+                        stream.write(writeFileBuf);
+                        stream.flush();
+                        stream.close();
+
+                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file.mht");
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    // Display the page
+                    loadPage();
                     break;
             }
         }

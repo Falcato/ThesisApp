@@ -1,5 +1,6 @@
 package com.example.falcato.btrouting;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,6 +11,7 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -34,6 +36,7 @@ public class BluetoothService {
     private ConnectThread mConnectThread;
     private ConnectedThread mConnectedThread;
     private int mState;
+    boolean fileReady = false;
 
     // Constants that indicate the current connection state
     public static final int STATE_NONE = 0;       // we're doing nothing
@@ -393,6 +396,7 @@ public class BluetoothService {
             try {
                 tmpIn = socket.getInputStream();
                 tmpOut = socket.getOutputStream();
+
             } catch (IOException e) {
                 Log.e(TAG, "temp sockets not created", e);
             }
@@ -403,25 +407,37 @@ public class BluetoothService {
 
         public void run() {
             Log.i(TAG, "BEGIN mConnectedThread");
-            byte[] buffer = new byte[20 * 1024];
+            byte[] buffer = new byte[8192];
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
             int bytes;
 
             // Keep listening to the InputStream while connected
             //while (no notification received)
             while (true) {
                 try {
+
                     // Read from the InputStream
                     bytes = mmInStream.read(buffer);
 
-                    if (bytes < 200) {
+                    if (!fileReady) {
                         // Send the obtained bytes to the UI Activity
                         Log.e(TAG, "nr of bytes: " + bytes);
                         mHandler.obtainMessage(BtActivity.MESSAGE_READ, bytes, -1, buffer)
                                 .sendToTarget();
-                    }else {
-                        Log.e(TAG, "nr of bytes file: " + bytes);
-                        mHandler.obtainMessage(BtActivity.FILE_READ, bytes, -1, buffer)
-                                .sendToTarget();
+                    }else{
+                        // Join the chunks of the file until we get the full file
+                        Log.e(TAG, "Joining file chunks of " + bytes + "bytes");
+                        output.write(buffer, 0, bytes);
+
+                        // If we received the full file
+                        if(bytes < 990) {
+                            byte[] out = output.toByteArray();
+                            output.flush();
+                            output.close();
+                            Log.e(TAG, "nr of bytes file: " + out.length);
+                            mHandler.obtainMessage(BtActivity.FILE_READ, out.length, -1, out)
+                                    .sendToTarget();
+                        }
                     }
 
                 } catch (IOException e) {
@@ -452,11 +468,37 @@ public class BluetoothService {
         public void writeFile(byte[] buffer) {
             Log.i(TAG, "writeFile(byte[] buffer)");
             try {
-                mmOutStream.write(buffer);
-                mmOutStream.flush();
+
+                /* try by sending chunks */
+                Double nrSends = Math.ceil((double) buffer.length / (double) 990);
+                Log.i(TAG, "will send " + Math.round(nrSends) + " chunks");
+                for (int currSend = 0; currSend < Math.round(nrSends); currSend ++){
+                    if ((currSend + 1) * 990 > buffer.length) {
+                        Log.i(TAG, "sending final chunk from " + (currSend * 990) + " to " + (currSend * 990 + (buffer.length - (currSend * 990))));
+                        mmOutStream.write(buffer, currSend * 990, (buffer.length - (currSend * 990)));
+                        mmOutStream.flush();
+                        Log.i(TAG, "sent final chunk");
+                    }else {
+                        Log.i(TAG, "sending chunk from " + (currSend * 990) + " to " + ((currSend * 990) + 990));
+                        mmOutStream.write(buffer, currSend * 990, 990);
+                        mmOutStream.flush();
+                        Log.i(TAG, "sent chunk");
+                    }
+                }
+                /* end of try */
+
+                //mmOutStream.write(buffer);
+                //mmOutStream.flush();
+
                 // Share the sent message back to the UI Activity
-                mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, -1, -1, "Sent a file".getBytes())
+                mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, buffer.length, -1, buffer)
                         .sendToTarget();
+
+                // Debug purposes
+                /*mHandler.obtainMessage(BtActivity.FILE_WRITE, buffer.length, -1, buffer)
+                        .sendToTarget();*/
+
+
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write file", e);
             }
