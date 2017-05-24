@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -15,6 +16,7 @@ import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -410,14 +412,15 @@ public class BtActivity extends Activity {
                                       android.graphics.Bitmap favicon) {
             }
             public void onPageFinished(WebView view, String url){
+
                 view.saveWebArchive(getFilesDir() + "file.mht");
                 Log.i(TAG, "saved web archive in: " + getFilesDir() + "file.mht");
-
+                // Fix to load all pages and not send 0 bytes
+                //loadPage(false);
                 File file = new File(getFilesDir() + "file.mht");
 
                 Log.i(TAG, "Downloading webpage...");
                 while (!file.exists()){
-
                 }
                 Log.i(TAG, "Downloaded webpage...");
 
@@ -432,11 +435,34 @@ public class BtActivity extends Activity {
 
     /* --- Logic to display the file --- */
 
-    private void loadPage(){
+    private void loadPage(boolean visibility){
         Log.i(TAG, "loading page...");
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
-        mWebview.setWebViewClient(new WebViewClient());
+        // Fix for not displaying webview in server device
+        /*if (visibility) {
+            mWebview.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading (WebView view, WebResourceRequest request) {
+                    if (Build.VERSION.SDK_INT > 20){
+                        if (!request.getUrl().toString().contains("file:///")) {
+                            sendRequest(true, -1, request.getUrl().toString().split("//")[1]);
+                        }
+                    }
+                    return false;
+                }
+
+                @Override
+                public void onPageStarted (WebView view, String url, Bitmap favicon) {
+                    Log.e(TAG, "URL is: " + url);
+                    if(!url.contains("file:///")) {
+                        sendRequest(true, -1, url.split("//")[1]);
+                    }
+                }
+            });
+        }else{*/
+            mWebview.setWebViewClient(new WebViewClient());
+        //}
         mWebview.setWebChromeClient(new WebChromeClient());
 
         if (Build.VERSION.SDK_INT < 22){
@@ -594,7 +620,7 @@ public class BtActivity extends Activity {
                         e.printStackTrace();
                     }
                     // Display the page
-                    loadPage();
+                    loadPage(true);
 
                     // Restart the Bluetooth Service
                     mService.start();
@@ -623,7 +649,7 @@ public class BtActivity extends Activity {
                         e.printStackTrace();
                     }
                     // Display the page
-                    loadPage();
+                    loadPage(true);
                     break;
             }
         }

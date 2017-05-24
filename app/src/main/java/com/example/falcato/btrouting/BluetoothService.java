@@ -490,10 +490,6 @@ public class BluetoothService {
                 //mmOutStream.write(buffer);
                 //mmOutStream.flush();
 
-                // Share the sent message back to the UI Activity
-                mHandler.obtainMessage(BtActivity.MESSAGE_WRITE, buffer.length, -1, buffer)
-                        .sendToTarget();
-
                 // Debug purposes
                 /*mHandler.obtainMessage(BtActivity.FILE_WRITE, buffer.length, -1, buffer)
                         .sendToTarget();*/
