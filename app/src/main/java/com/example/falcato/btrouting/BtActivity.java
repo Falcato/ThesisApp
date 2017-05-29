@@ -2,6 +2,7 @@ package com.example.falcato.btrouting;
 
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -9,6 +10,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -216,29 +218,33 @@ public class BtActivity extends Activity {
     private void advertisePeers() {
         Log.i(TAG, "advertisePeers()");
         for (BluetoothDevice peer : peers){
-            // Check if peer is using app
-            if (peer.getName().contains(";")) {
-                Log.i(TAG, "Will advertise to: " + peer.getName());
-                mService.connect(peer);
+            Log.i(TAG, "Peer class: " + peer.getBluetoothClass().getDeviceClass());
+            // Check if peer is a cell phone
+            if (peer.getBluetoothClass().getDeviceClass() == 524){
+                // Check if peer is using app
+                if (peer.getName().contains(";")) {
+                    Log.i(TAG, "Will advertise to: " + peer.getName());
+                    mService.connect(peer);
 
-                // Wait until connection is done
-                while (mService.getState() != BluetoothService.STATE_CONNECTED){
-                    if (mService.getState() == BluetoothService.STATE_LISTEN){
-                        Log.e(TAG, "Failed to connect, listening");
-                        mService.start();
-                        break;
+                    // Wait until connection is done
+                    while (mService.getState() != BluetoothService.STATE_CONNECTED) {
+                        if (mService.getState() == BluetoothService.STATE_LISTEN) {
+                            Log.e(TAG, "Failed to connect, listening");
+                            mService.start();
+                            break;
+                        }
                     }
-                }
 
-                // Device is connected, advertise
-                int nrHops = ((RoutingApp)getApplicationContext()).getMinHop() + 1;
-                sendMessage("ADV;" + getOwnMAC() + ";" + nrHops);
+                    // Device is connected, advertise
+                    int nrHops = ((RoutingApp) getApplicationContext()).getMinHop() + 1;
+                    sendMessage("ADV;" + getOwnMAC() + ";" + nrHops);
 
-                // Wait until connection is finished
-                long initTime = System.currentTimeMillis();
-                while (mService.getState() != BluetoothService.STATE_LISTEN){
-                    if (System.currentTimeMillis() - initTime > 5000){
-                        break;
+                    // Wait until connection is finished
+                    long initTime = System.currentTimeMillis();
+                    while (mService.getState() != BluetoothService.STATE_LISTEN) {
+                        if (System.currentTimeMillis() - initTime > 5000) {
+                            break;
+                        }
                     }
                 }
             }
@@ -288,7 +294,7 @@ public class BtActivity extends Activity {
     }
 
     private void sendResponse(int msgID) {
-        Log.i(TAG, "sendResponse()");
+        Log.i(TAG, "sendResponse(int msgID) " + msgID);
         // Retrieve the requester's MAC
         String nextHopMAC = ((RoutingApp)getApplicationContext()).getRspHop(msgID);
         // If message ID exists in the response table
@@ -371,6 +377,8 @@ public class BtActivity extends Activity {
 
         // Request message
         }else if (message.contains("RQT")){
+            // Save the message ID
+            msgID = Integer.parseInt(message.split(";")[1]);
             // Update the response table
             ((RoutingApp)getApplicationContext()).updateRspTable(
                     Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
@@ -406,30 +414,26 @@ public class BtActivity extends Activity {
 
     private void getPage(String url, final int msgID){
         Log.i(TAG, "getPage(String url, final int messageID)");
+        //mWebview.setVisibility(View.VISIBLE);
         mWebview.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageStarted(WebView view, String url,
-                                      android.graphics.Bitmap favicon) {
-            }
-            public void onPageFinished(WebView view, String url){
+              public void onPageFinished(WebView view, String url) {
+                  // Fix to load all pages and not send 0 bytes
 
-                view.saveWebArchive(getFilesDir() + "file.mht");
-                Log.i(TAG, "saved web archive in: " + getFilesDir() + "file.mht");
-                // Fix to load all pages and not send 0 bytes
-                //loadPage(false);
-                File file = new File(getFilesDir() + "file.mht");
+                  File file = new File(getFilesDir() + "file.mht");
 
-                Log.i(TAG, "Downloading webpage...");
-                while (!file.exists()){
-                }
-                Log.i(TAG, "Downloaded webpage...");
+                  try {
+                      file.createNewFile();
+                  } catch (IOException e) {
+                      e.printStackTrace();
+                  }
 
-                sendResponse(msgID);
-            }
-            public void onLoadResource(WebView view, String url) {
-            }
+                  view.saveWebArchive(getFilesDir() + "file.mht");
+                  //mWebview.setVisibility(View.INVISIBLE);
+
+                  waitForWebPage dloader = new waitForWebPage();
+                  dloader.execute();
+              }
         });
-
         mWebview.loadUrl("https://" + url);
     }
 
@@ -439,30 +443,7 @@ public class BtActivity extends Activity {
         Log.i(TAG, "loading page...");
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
-        // Fix for not displaying webview in server device
-        /*if (visibility) {
-            mWebview.setWebViewClient(new WebViewClient() {
-                @Override
-                public boolean shouldOverrideUrlLoading (WebView view, WebResourceRequest request) {
-                    if (Build.VERSION.SDK_INT > 20){
-                        if (!request.getUrl().toString().contains("file:///")) {
-                            sendRequest(true, -1, request.getUrl().toString().split("//")[1]);
-                        }
-                    }
-                    return false;
-                }
-
-                @Override
-                public void onPageStarted (WebView view, String url, Bitmap favicon) {
-                    Log.e(TAG, "URL is: " + url);
-                    if(!url.contains("file:///")) {
-                        sendRequest(true, -1, url.split("//")[1]);
-                    }
-                }
-            });
-        }else{*/
-            mWebview.setWebViewClient(new WebViewClient());
-        //}
+        mWebview.setWebViewClient(new WebViewClient());
         mWebview.setWebChromeClient(new WebChromeClient());
 
         if (Build.VERSION.SDK_INT < 22){
@@ -654,4 +635,22 @@ public class BtActivity extends Activity {
             }
         }
     };
+
+    private class waitForWebPage extends AsyncTask<Void, Void, Void>{
+        File file = new File(getFilesDir() + "file.mht");
+        @Override
+        protected Void doInBackground(Void... params) {
+            Log.i(TAG, "Downloading webpage...");
+            while(!(file.length() > 0)){
+            }
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(Void result){
+            Log.i(TAG, "saved web archive in: " + getFilesDir() + "file.mht with " +
+                    file.length() + " bytes");
+            sendResponse(msgID);
+        }
+    }
 }
