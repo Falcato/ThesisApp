@@ -2,14 +2,11 @@ package com.example.falcato.btrouting;
 
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,7 +15,6 @@ import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -38,7 +34,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Random;
-
 
 public class BtActivity extends Activity {
 
@@ -221,6 +216,8 @@ public class BtActivity extends Activity {
             Log.i(TAG, "Peer class: " + peer.getBluetoothClass().getDeviceClass());
             // Check if peer is a cell phone
             if (peer.getBluetoothClass().getDeviceClass() == 524){
+                //Debug
+                //if(!peer.getName().contains(";HUAWEI P8 lite")) {
                 // Check if peer is using app
                 if (peer.getName().contains(";")) {
                     Log.i(TAG, "Will advertise to: " + peer.getName());
@@ -247,6 +244,8 @@ public class BtActivity extends Activity {
                         }
                     }
                 }
+                //Debug
+                //}
             }
         }
     }
@@ -260,8 +259,7 @@ public class BtActivity extends Activity {
         // In case there is no next hop
         if (nextHop.getAddress() == null){
             Log.i(TAG, "There is no next hop");
-            Toast.makeText(getApplicationContext(), "Unable to reach the Internet.",
-                    Toast.LENGTH_SHORT).show();
+            sendFail(msgID);
             return;
         }
 
@@ -273,6 +271,8 @@ public class BtActivity extends Activity {
             if (mService.getState() == BluetoothService.STATE_LISTEN){
                 Log.e(TAG, "Failed to connect, listening");
                 mService.start();
+                // Failed to connect send fail notification
+                sendFail(msgID);
                 return;
             }
         }
@@ -314,6 +314,32 @@ public class BtActivity extends Activity {
             }
             // Send the response message
             sendMessage("RSP;" + msgID);
+        }else{
+            Log.i(TAG, "MAC for requested Message ID not found");
+        }
+    }
+
+    private void sendFail(int msgID) {
+        Log.i(TAG, "sendFail(int msgID) " + msgID);
+        // Retrieve the requester's MAC
+        String nextHopMAC = ((RoutingApp)getApplicationContext()).getRspHop(msgID);
+        // If message ID exists in the response table
+        if (nextHopMAC != null){
+            // Get the address of the next hop
+            BluetoothDevice nextHopDevice = mBluetoothAdapter.getRemoteDevice(nextHopMAC);
+            Log.i(TAG, "Will send fail notification to: " + nextHopDevice.getAddress());
+            mService.connect(nextHopDevice);
+
+            // Wait until connection is done
+            for (int aux = 0; mService.getState() != BluetoothService.STATE_CONNECTED; aux ++){
+                if (mService.getState() == BluetoothService.STATE_LISTEN){
+                    Log.e(TAG, "Failed to connect, listening");
+                    mService.start();
+                    return;
+                }
+            }
+            // Send the response message
+            sendMessage("FAIL;" + msgID);
         }else{
             Log.i(TAG, "MAC for requested Message ID not found");
         }
@@ -386,7 +412,7 @@ public class BtActivity extends Activity {
             // If device is not connected to the Internet
             if (!((RoutingApp)getApplicationContext()).getHasNet()){
                 // Forward the request
-                sendRequest(false, Integer.parseInt(message.split(";")[1]), message.split(";")[2]);
+                sendRequest(false, Integer.parseInt(message.split(";")[1]), message.split(";")[3]);
             // If it is connected, fetch the web page and send the response
             }else{
                 getPage(message.split(";")[3], Integer.parseInt(message.split(";")[1]));
@@ -407,7 +433,25 @@ public class BtActivity extends Activity {
             // Otherwise forward response to destination
             }else{
                 // Forward the response
-                sendResponse(Integer.parseInt(message.split(";")[1]));
+                Log.i(TAG, "Not the final destination will forward response.");
+            }
+        }else if (message.contains("FAIL")){
+            // Save message ID to know the file name
+            msgID = Integer.parseInt(message.split(";")[1]);
+
+            // If device is the destination
+            if (((RoutingApp)getApplicationContext()).getRspHop(Integer.parseInt(
+                    message.split(";")[1])).equals(getOwnMAC())){
+                // Request was successfully sent but response failed
+                Toast.makeText(getApplicationContext(), "Unfortunately there was a problem along " +
+                                "the path. Please try again later.",
+                        Toast.LENGTH_SHORT).show();
+
+                // Otherwise forward response to destination
+            }else{
+                // Forward the failed request
+                Log.i(TAG, "Not the final destination will forward fail notification.");
+                sendFail(msgID);
             }
         }
     }
@@ -600,12 +644,19 @@ public class BtActivity extends Activity {
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
-                    // Display the page
-                    loadPage(true);
 
                     // Restart the Bluetooth Service
                     mService.start();
                     mService.fileReady = false;
+
+                    // If I am the destination
+                    if (((RoutingApp)getApplicationContext()).getRspHop(msgID).equals(getOwnMAC())) {
+                        // Display the page
+                        loadPage(true);
+                    }else{
+                        sendResponse(msgID);
+                    }
+
                     break;
 
                 case FILE_WRITE:

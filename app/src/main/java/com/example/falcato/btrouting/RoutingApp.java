@@ -34,7 +34,7 @@ public class RoutingApp extends Application {
         String dest = msg.split(";")[1];
         int hops = Integer.parseInt(msg.split(";")[2]);
 
-        // If already contains current node
+        /*// If already contains current node
         if (routeTable.containsKey(dest)){
             // If new advertise is better than previous
             if (hops <= routeTable.get(dest))
@@ -45,7 +45,8 @@ public class RoutingApp extends Application {
             // Insert new node and hops
             routeTable.put(dest, hops);
             Log.i(TAG, "Inserted table: " + routeTable.toString());
-        }
+        }*/
+        routeTable.put(dest, hops);
     }
 
     public int getMinHop () {

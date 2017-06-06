@@ -468,8 +468,7 @@ public class BluetoothService {
         public void writeFile(byte[] buffer) {
             Log.i(TAG, "writeFile(byte[] buffer)");
             try {
-
-                /* try by sending chunks */
+                // Send the file in chunks of 990 bytes
                 Double nrSends = Math.ceil((double) buffer.length / (double) 990);
                 Log.i(TAG, "will send " + Math.round(nrSends) + " chunks");
                 for (int currSend = 0; currSend < Math.round(nrSends); currSend ++){
@@ -485,10 +484,6 @@ public class BluetoothService {
                         Log.i(TAG, "sent chunk");
                     }
                 }
-                /* end of try */
-
-                //mmOutStream.write(buffer);
-                //mmOutStream.flush();
 
                 // Debug purposes
                 /*mHandler.obtainMessage(BtActivity.FILE_WRITE, buffer.length, -1, buffer)
