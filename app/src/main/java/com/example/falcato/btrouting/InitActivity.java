@@ -40,6 +40,10 @@ public class InitActivity extends Activity {
         });
     }
 
+    /* --- Beacon logic --- */
+
+    /* --- End of logic --- */
+
     private class NetworkCheck extends AsyncTask<Void, Void, Boolean> {
 
         @Override

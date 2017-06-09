@@ -15,6 +15,8 @@ import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -34,6 +36,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Random;
+
+import org.altbeacon.beacon.*;
 
 public class BtActivity extends Activity {
 
@@ -73,7 +77,7 @@ public class BtActivity extends Activity {
     private BluetoothService mService = null;
     // Check if peer discovery is finished
     private boolean discoveryFinished = false;
-
+    // Save the message ID
     private int msgID = 0;
 
     @Override
@@ -190,6 +194,7 @@ public class BtActivity extends Activity {
 
     private void doDiscovery() {
         if (D) Log.i(TAG, "doDiscovery()");
+        discoveryFinished = false;
 
         // If we're already discovering, stop it
         if (mBluetoothAdapter.isDiscovering()) {
@@ -481,20 +486,45 @@ public class BtActivity extends Activity {
         mWebview.loadUrl("https://" + url);
     }
 
+    @Override
+    public void onBackPressed(){
+        // If a page is being displayed, let the user enter a new URL
+        if (mWebview.getVisibility() == View.VISIBLE) {
+            mWebview.setVisibility(View.INVISIBLE);
+        // Otherwise act normally and go back
+        }else{
+            super.onBackPressed();
+        }
+    }
+
     /* --- Logic to display the file --- */
 
-    private void loadPage(boolean visibility){
+    private void loadPage(){
         Log.i(TAG, "loading page...");
+
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
-        mWebview.setWebViewClient(new WebViewClient());
+        // #1 try to send a re-request
+        mWebview.setWebViewClient(new WebViewClient(){
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        WebResourceError error) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    Log.i(TAG, "No Internet connection, sending a re-request of: " +
+                            request.getUrl().toString().split("://")[1]);
+                    view.loadUrl("about:blank");
+                    sendRequest(true, -1, request.getUrl().toString().split("://")[1]);
+                }
+            }
+        });
         mWebview.setWebChromeClient(new WebChromeClient());
 
-        if (Build.VERSION.SDK_INT < 22){
+        if (Build.VERSION.SDK_INT < 22) {
             loadArchive();
-        }else{
+        } else {
             mWebview.loadUrl("file:///" + getFilesDir() + "file.mht");
         }
+
         Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file.mht");
     }
 
@@ -652,7 +682,7 @@ public class BtActivity extends Activity {
                     // If I am the destination
                     if (((RoutingApp)getApplicationContext()).getRspHop(msgID).equals(getOwnMAC())) {
                         // Display the page
-                        loadPage(true);
+                        loadPage();
                     }else{
                         sendResponse(msgID);
                     }
@@ -681,7 +711,7 @@ public class BtActivity extends Activity {
                         e.printStackTrace();
                     }
                     // Display the page
-                    loadPage(true);
+                    loadPage();
                     break;
             }
         }

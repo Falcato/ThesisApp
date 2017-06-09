@@ -426,7 +426,7 @@ public class BluetoothService {
                                 .sendToTarget();
                     }else{
                         // Join the chunks of the file until we get the full file
-                        Log.e(TAG, "Joining file chunks of " + bytes + "bytes");
+                        //Log.e(TAG, "Joining file chunks of " + bytes + "bytes");
                         output.write(buffer, 0, bytes);
 
                         // If we received the full file
@@ -473,15 +473,15 @@ public class BluetoothService {
                 Log.i(TAG, "will send " + Math.round(nrSends) + " chunks");
                 for (int currSend = 0; currSend < Math.round(nrSends); currSend ++){
                     if ((currSend + 1) * 990 > buffer.length) {
-                        Log.i(TAG, "sending final chunk from " + (currSend * 990) + " to " + (currSend * 990 + (buffer.length - (currSend * 990))));
+                        //Log.i(TAG, "sending final chunk from " + (currSend * 990) + " to " + (currSend * 990 + (buffer.length - (currSend * 990))));
                         mmOutStream.write(buffer, currSend * 990, (buffer.length - (currSend * 990)));
                         mmOutStream.flush();
-                        Log.i(TAG, "sent final chunk");
+                        //Log.i(TAG, "sent final chunk");
                     }else {
-                        Log.i(TAG, "sending chunk from " + (currSend * 990) + " to " + ((currSend * 990) + 990));
+                        //Log.i(TAG, "sending chunk from " + (currSend * 990) + " to " + ((currSend * 990) + 990));
                         mmOutStream.write(buffer, currSend * 990, 990);
                         mmOutStream.flush();
-                        Log.i(TAG, "sent chunk");
+                        //Log.i(TAG, "sent chunk");
                     }
                 }
 
