@@ -36,8 +36,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Random;
-
-import org.altbeacon.beacon.*;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class BtActivity extends Activity {
 
@@ -163,6 +163,10 @@ public class BtActivity extends Activity {
                 sendRequest(true, -1, mEdit.getText().toString());
             }
         });
+
+        // Repeat discovery process every 5 min
+        Timer timer = new Timer();
+        timer.schedule(new Discovery(), 300000, 300000);
     }
 
     @Override
@@ -222,7 +226,7 @@ public class BtActivity extends Activity {
             // Check if peer is a cell phone
             if (peer.getBluetoothClass().getDeviceClass() == 524){
                 //Debug
-                //if(!peer.getName().contains(";HUAWEI P8 lite")) {
+                if(!peer.getName().contains(";Moto")) {
                 // Check if peer is using app
                 if (peer.getName().contains(";")) {
                     Log.i(TAG, "Will advertise to: " + peer.getName());
@@ -232,7 +236,7 @@ public class BtActivity extends Activity {
                     while (mService.getState() != BluetoothService.STATE_CONNECTED) {
                         if (mService.getState() == BluetoothService.STATE_LISTEN) {
                             Log.e(TAG, "Failed to connect, listening");
-                            mService.start();
+                            //mService.start();
                             break;
                         }
                     }
@@ -250,9 +254,10 @@ public class BtActivity extends Activity {
                     }
                 }
                 //Debug
-                //}
+                }
             }
         }
+        mService.start();
     }
 
     private void sendRequest(boolean owner, int msgID, String message) {
@@ -639,7 +644,7 @@ public class BtActivity extends Activity {
                     if (!readMessage.contains("RSP;")) {
                         mService.start();
                     }else {
-                        mService.fileReady = true;
+                        //mService.fileReady = true;
                     }
                     analyzeMessage(readMessage);
                     break;
@@ -732,6 +737,28 @@ public class BtActivity extends Activity {
             Log.i(TAG, "saved web archive in: " + getFilesDir() + "file.mht with " +
                     file.length() + " bytes");
             sendResponse(msgID);
+        }
+    }
+
+    private class Discovery extends TimerTask{
+        @Override
+        public void run() {
+            // Clear previous routing table entries
+            ((RoutingApp)getApplicationContext()).clearRouteTable();
+
+            // Update route table and start discovery
+            // If device has net
+            if(((RoutingApp)getApplicationContext()).getHasNet())
+                ((RoutingApp)getApplicationContext()).updateRouteTable
+                        ("ADV;" + getOwnMAC() + ";0");
+
+            // Otherwise infinite number of hops
+            else
+                ((RoutingApp)getApplicationContext()).updateRouteTable
+                        ("ADV;" + getOwnMAC() + ";16");
+
+            // Remove comments
+            doDiscovery();
         }
     }
 }

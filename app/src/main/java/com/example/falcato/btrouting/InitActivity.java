@@ -1,8 +1,10 @@
 package com.example.falcato.btrouting;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -30,6 +32,9 @@ public class InitActivity extends Activity {
         // Check if device has an Internet connection
         new NetworkCheck().execute();
 
+        if (Build.VERSION.SDK_INT > 22)
+            this.requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
+
         goButton = (Button) findViewById(R.id.button);
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -39,10 +44,6 @@ public class InitActivity extends Activity {
             }
         });
     }
-
-    /* --- Beacon logic --- */
-
-    /* --- End of logic --- */
 
     private class NetworkCheck extends AsyncTask<Void, Void, Boolean> {
 

@@ -422,15 +422,22 @@ public class BluetoothService {
                     if (!fileReady) {
                         // Send the obtained bytes to the UI Activity
                         Log.e(TAG, "nr of bytes: " + bytes);
+                        String readMessage = new String(buffer);
+                        if(readMessage.contains("RSP")){
+                            fileReady = true;
+                        }
                         mHandler.obtainMessage(BtActivity.MESSAGE_READ, bytes, -1, buffer)
                                 .sendToTarget();
                     }else{
                         // Join the chunks of the file until we get the full file
                         //Log.e(TAG, "Joining file chunks of " + bytes + "bytes");
+
+                        //Log.i(TAG, "received chunk");
                         output.write(buffer, 0, bytes);
 
                         // If we received the full file
                         if(bytes < 990) {
+                            //Log.i(TAG, "received final chunk");
                             byte[] out = output.toByteArray();
                             output.flush();
                             output.close();

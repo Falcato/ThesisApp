@@ -49,6 +49,11 @@ public class RoutingApp extends Application {
         routeTable.put(dest, hops);
     }
 
+    public void clearRouteTable () {
+        Log.i(TAG, "clearRouteTable");
+        routeTable.clear();
+    }
+
     public int getMinHop () {
         Log.i(TAG, "getMinHop()");
         int minHop;
