@@ -226,7 +226,7 @@ public class BtActivity extends Activity {
             // Check if peer is a cell phone
             if (peer.getBluetoothClass().getDeviceClass() == 524){
                 //Debug
-                if(!peer.getName().contains(";Moto")) {
+                //if(!peer.getName().contains(";Moto")) {
                 // Check if peer is using app
                 if (peer.getName().contains(";")) {
                     Log.i(TAG, "Will advertise to: " + peer.getName());
@@ -254,7 +254,7 @@ public class BtActivity extends Activity {
                     }
                 }
                 //Debug
-                }
+                //}
             }
         }
         mService.start();
@@ -270,6 +270,17 @@ public class BtActivity extends Activity {
         if (nextHop.getAddress() == null){
             Log.i(TAG, "There is no next hop");
             sendFail(msgID);
+            return;
+        }
+
+        if (nextHop.equals(getOwnMAC())){
+            mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
+            mWebview.setVisibility(View.VISIBLE);
+            mWebview.getSettings().setJavaScriptEnabled(true);
+            // #1 try to send a re-request
+            mWebview.setWebViewClient(new WebViewClient());
+            mWebview.setWebChromeClient(new WebChromeClient());
+            mWebview.loadUrl(message);
             return;
         }
 
@@ -469,6 +480,7 @@ public class BtActivity extends Activity {
     private void getPage(String url, final int msgID){
         Log.i(TAG, "getPage(String url, final int messageID)");
         //mWebview.setVisibility(View.VISIBLE);
+        mWebview.getSettings().setJavaScriptEnabled(true);
         mWebview.setWebViewClient(new WebViewClient() {
               public void onPageFinished(WebView view, String url) {
                   // Fix to load all pages and not send 0 bytes
@@ -509,6 +521,7 @@ public class BtActivity extends Activity {
 
         mWebview.getSettings().setCacheMode( WebSettings.LOAD_CACHE_ELSE_NETWORK );
         mWebview.setVisibility(View.VISIBLE);
+        mWebview.getSettings().setJavaScriptEnabled(true);
         // #1 try to send a re-request
         mWebview.setWebViewClient(new WebViewClient(){
             @Override
@@ -530,7 +543,10 @@ public class BtActivity extends Activity {
             mWebview.loadUrl("file:///" + getFilesDir() + "file.mht");
         }
 
-        Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file.mht");
+        // Debug
+        File file = new File(getFilesDir() + "file.mht");
+        Log.i(TAG, "Loaded page in: file:///" + getFilesDir() + "file.mht with " +
+                file.length());
     }
 
     private void loadArchive(){
@@ -660,9 +676,14 @@ public class BtActivity extends Activity {
                     Log.i(TAG, "Received a new file");
 
                     byte[] readFileBuf = (byte[]) msg.obj;
+
+                    //Debug
+                    //String readFileMessage = new String(readFileBuf, 0, msg.arg1);
+                    //Log.i(TAG, readFileMessage);
+
                     try {
 
-                        File file = new File(getFilesDir() + "file" + msgID + ".mht");
+                        File file = new File(getFilesDir() + "file.mht");
                         if (!file.exists()) {
                             file.createNewFile();
                         }
@@ -673,7 +694,8 @@ public class BtActivity extends Activity {
                         stream.flush();
                         stream.close();
 
-                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file.mht");
+                        Log.i(TAG, "Saved the file in: " + getFilesDir() + "file.mht with " +
+                        file.length());
                     } catch (FileNotFoundException e) {
                         e.printStackTrace();
                     } catch (IOException e) {
@@ -745,6 +767,9 @@ public class BtActivity extends Activity {
         public void run() {
             // Clear previous routing table entries
             ((RoutingApp)getApplicationContext()).clearRouteTable();
+
+            // Make device discoverable
+            ensureDiscoverable();
 
             // Update route table and start discovery
             // If device has net

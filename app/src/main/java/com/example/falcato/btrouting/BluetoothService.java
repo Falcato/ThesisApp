@@ -495,11 +495,12 @@ public class BluetoothService {
                 // Debug purposes
                 /*mHandler.obtainMessage(BtActivity.FILE_WRITE, buffer.length, -1, buffer)
                         .sendToTarget();*/
-
+                start();
 
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write file", e);
             }
+
         }
 
         public void cancel() {
