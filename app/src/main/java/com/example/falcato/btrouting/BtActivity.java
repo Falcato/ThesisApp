@@ -166,7 +166,7 @@ public class BtActivity extends Activity {
 
         // Repeat discovery process every 5 min
         Timer timer = new Timer();
-        timer.schedule(new Discovery(), 300000, 300000);
+        timer.scheduleAtFixedRate(new Discovery(), 300000, 300000);
     }
 
     @Override
