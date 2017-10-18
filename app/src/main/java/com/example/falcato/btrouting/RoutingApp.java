@@ -95,9 +95,12 @@ public class RoutingApp extends Application {
 
     public String getRspHop (int msgID) {
         Log.i(TAG, "getRspHop()");
-        if (rspTable.containsKey(msgID))
-            return rspTable.get(msgID);
-        else
+        String next;
+        if (rspTable.containsKey(msgID)) {
+            next = rspTable.get(msgID);
+            rspTable.remove(msgID);
+            return next;
+        }else
             return null;
     }
 }
